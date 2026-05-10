@@ -1,0 +1,107 @@
+/* Global layout, typography, scaffolding */
+
+body {
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--bg);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* App shell — center on desktop, full-width on mobile */
+.app {
+  position: relative;
+  margin: 0 auto;
+  max-width: var(--app-max);
+  min-height: 100vh;
+  background: var(--bg);
+  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0));
+}
+
+@media (min-width: 600px) {
+  body {
+    background: var(--bg-sunk);
+  }
+  .app {
+    margin: 24px auto;
+    min-height: calc(100vh - 48px);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    overflow: hidden;
+  }
+}
+
+/* Screens stack — only one visible at a time. We rely on [hidden]. */
+.screens {
+  display: block;
+  padding: 0 var(--pad-page);
+}
+
+.screen {
+  padding-top: 28px;
+  padding-bottom: 24px;
+  animation: fade-up 280ms ease both;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* App header (top of each screen) */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  min-height: 28px;
+}
+
+.brand {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.brand.small {
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.placeholder {
+  width: 48px;
+  display: inline-block;
+}
+
+/* Bottom nav */
+.bottom-nav {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 0;
+  width: 100%;
+  max-width: var(--app-max);
+  height: var(--nav-h);
+  display: flex;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  z-index: 30;
+}
+
+@media (min-width: 600px) {
+  .bottom-nav {
+    border-radius: 0 0 24px 24px;
+  }
+}
+
+/* Net banner */
+.net-banner {
+  background: var(--bg-soft);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}

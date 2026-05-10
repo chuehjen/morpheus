@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#F5F1E8" />
+  <title>Morpheus · 记录你的梦境</title>
+  <link rel="stylesheet" href="styles/reset.css" />
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/main.css" />
+  <link rel="stylesheet" href="styles/components.css" />
+  <link rel="stylesheet" href="styles/screens.css" />
+</head>
+<body>
+  <div class="app" id="app">
+
+    <!-- ========== 顶部网络提示条（默认隐藏） ========== -->
+    <div class="net-banner" id="net-banner" hidden>
+      需要网络连接才能使用语音识别
+    </div>
+
+    <main class="screens">
+
+      <!-- ========== 1. 首页 · 记录 ========== -->
+      <section class="screen" id="screen-home" data-screen="home">
+        <header class="app-header">
+          <div class="brand">Morpheus</div>
+        </header>
+
+        <div class="home-hero">
+          <h1 class="hero-title">早安，<br />记录你的梦境</h1>
+          <p class="hero-sub">醒来的片刻，让灵感不被溜走。</p>
+        </div>
+
+        <div class="record-area">
+          <button class="record-btn" id="btn-start-record" aria-label="开始录音">
+            <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true">
+              <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
+            </svg>
+          </button>
+          <p class="record-hint">点击开始录音</p>
+        </div>
+
+        <div class="info-card">
+          <div class="info-card__title">AI 帮你整理重点</div>
+          <p class="info-card__body">
+            录完之后，自动提炼情绪、主题与故事摘要，原文保留可编辑。
+          </p>
+        </div>
+      </section>
+
+      <!-- ========== 2. 录音中 ========== -->
+      <section class="screen" id="screen-recording" data-screen="recording" hidden>
+        <header class="app-header">
+          <button class="link-btn" id="btn-cancel-record">取消</button>
+          <div class="brand small">正在录音</div>
+          <span class="placeholder"></span>
+        </header>
+
+        <div class="rec-stage">
+          <div class="rec-timer" id="rec-timer">00:00</div>
+          <div class="wave" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <p class="rec-tip">最长可录 3 分钟</p>
+        </div>
+
+        <div class="rec-controls">
+          <button class="primary-btn" id="btn-stop-record">停止</button>
+        </div>
+      </section>
+
+      <!-- ========== 3. AI 解析中 ========== -->
+      <section class="screen" id="screen-parsing" data-screen="parsing" hidden>
+        <div class="parse-stage">
+          <div class="parse-orb" aria-hidden="true"></div>
+          <h2 class="parse-title">AI 正在解析你的梦境</h2>
+          <p class="parse-sub">通常需要 10–30 秒</p>
+
+          <ul class="parse-steps" id="parse-steps">
+            <li data-step="0">语音转文字</li>
+            <li data-step="1">理解梦境内容</li>
+            <li data-step="2">提炼主题与元素</li>
+            <li data-step="3">生成摘要</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ========== 4. 确认记录 ========== -->
+      <section class="screen" id="screen-confirm" data-screen="confirm" hidden>
+        <header class="app-header">
+          <button class="link-btn" id="btn-confirm-back">返回</button>
+          <div class="brand small">确认你的梦境记录</div>
+          <span class="placeholder"></span>
+        </header>
+
+        <div class="confirm-form">
+          <div class="field-group">
+            <label class="field-label" for="f-date">日期</label>
+            <input class="field-input" type="date" id="f-date" />
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="f-mood">心情</label>
+            <select class="field-input" id="f-mood">
+              <option>奇幻</option>
+              <option>温暖</option>
+              <option>焦虑</option>
+              <option>恐怖/惊悚</option>
+              <option>悲伤</option>
+              <option>平静</option>
+              <option>困惑</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">主题</label>
+            <div class="chip-list" id="chips-themes"></div>
+            <div class="chip-input">
+              <input type="text" id="input-theme" placeholder="添加主题，回车确认" />
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">元素</label>
+            <div class="chip-list" id="chips-elements"></div>
+            <div class="chip-input">
+              <input type="text" id="input-element" placeholder="添加元素，回车确认" />
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="f-summary">故事摘要</label>
+            <textarea class="field-textarea" id="f-summary" rows="4"></textarea>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="f-raw">原始记录</label>
+            <textarea class="field-textarea" id="f-raw" rows="6"></textarea>
+          </div>
+        </div>
+
+        <div class="confirm-actions">
+          <button class="secondary-btn" id="btn-redo">重新录音</button>
+          <button class="primary-btn" id="btn-save">保存记录</button>
+        </div>
+      </section>
+
+      <!-- ========== 5. 保存成功 ========== -->
+      <section class="screen" id="screen-saved" data-screen="saved" hidden>
+        <div class="saved-stage">
+          <div class="saved-circle" aria-hidden="true">
+            <svg viewBox="0 0 36 36" width="44" height="44">
+              <path fill="none" stroke="currentColor" stroke-width="2.4"
+                    stroke-linecap="round" stroke-linejoin="round"
+                    d="M9 18.5l6 6 12-12"/>
+            </svg>
+          </div>
+          <h2 class="saved-title">已保存到故事集</h2>
+          <p class="saved-sub">梦境已写入你自己的 Google Sheets。</p>
+        </div>
+
+        <div class="saved-actions">
+          <button class="primary-btn" id="btn-go-stories">查看故事集</button>
+          <button class="secondary-btn" id="btn-go-home">返回首页</button>
+        </div>
+      </section>
+
+      <!-- ========== 6. 故事集 ========== -->
+      <section class="screen" id="screen-stories" data-screen="stories" hidden>
+        <header class="app-header">
+          <div class="brand">故事集</div>
+          <button class="icon-btn" id="btn-open-settings" aria-label="设置">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.55-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.67 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.79 14.16a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.67.22l2.39-.96c.49.39 1.03.7 1.62.94l.36 2.54c.05.24.25.42.49.42h3.84c.24 0 .44-.18.49-.42l.36-2.54c.59-.24 1.13-.55 1.62-.94l2.39.96c.25.12.53.02.67-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.04-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+            </svg>
+          </button>
+        </header>
+
+        <div class="search-wrap">
+          <input class="search-input" type="search" id="story-search" placeholder="搜索梦境关键字" />
+        </div>
+
+        <div class="story-list" id="story-list"></div>
+
+        <div class="empty-state" id="story-empty" hidden>
+          <p class="empty-title">还没有梦境故事</p>
+          <p class="empty-sub">醒来时记录第一则梦，让它不被溜走。</p>
+          <button class="primary-btn" id="btn-empty-record">去记录第一则梦</button>
+        </div>
+      </section>
+
+      <!-- ========== 7. 故事详情 ========== -->
+      <section class="screen" id="screen-story-detail" data-screen="storyDetail" hidden>
+        <header class="app-header">
+          <button class="link-btn" id="btn-detail-back">故事集</button>
+          <div class="brand small">梦境详情</div>
+          <span class="placeholder"></span>
+        </header>
+
+        <article class="detail">
+          <div class="detail-date" id="detail-date"></div>
+          <div class="detail-mood" id="detail-mood"></div>
+
+          <div class="detail-section">
+            <div class="detail-label">主题</div>
+            <div class="chip-list readonly" id="detail-themes"></div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-label">元素</div>
+            <div class="chip-list readonly" id="detail-elements"></div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-label">故事摘要</div>
+            <p class="detail-summary" id="detail-summary"></p>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-label">原文</div>
+            <p class="detail-raw" id="detail-raw"></p>
+          </div>
+        </article>
+      </section>
+
+      <!-- ========== 8. 设置 ========== -->
+      <section class="screen" id="screen-settings" data-screen="settings" hidden>
+        <header class="app-header">
+          <button class="link-btn" id="btn-settings-back">返回</button>
+          <div class="brand small">设置</div>
+          <span class="placeholder"></span>
+        </header>
+
+        <div class="settings-list">
+          <div class="settings-row">
+            <div class="settings-row__label">Google 账号</div>
+            <div class="settings-row__value" id="settings-google-status">未绑定</div>
+            <button class="secondary-btn small" id="btn-bind-google">绑定 Google</button>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row__label">数据表</div>
+            <div class="settings-row__value" id="settings-sheet-status">尚未创建</div>
+            <button class="secondary-btn small" id="btn-rebuild-sheet">重建数据表</button>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row__label">关于 Morpheus</div>
+            <div class="settings-row__value muted">
+              一个安静的梦境记录工具。<br />
+              数据存储在你自己的 Google Sheets 中。
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ========== 底部 Tab ========== -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="tab" data-tab-target="home" aria-label="记录">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
+        </svg>
+        <span>记录</span>
+      </button>
+      <button class="tab" data-tab-target="stories" aria-label="故事集">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path fill="currentColor" d="M6 4h11a3 3 0 0 1 3 3v13a1 1 0 0 1-1.45.9L17 20l-1.55.9a1 1 0 0 1-.9 0L13 20l-1.55.9a1 1 0 0 1-.9 0L9 20l-1.55.9A1 1 0 0 1 6 20V4zm0 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2"/>
+        </svg>
+        <span>故事集</span>
+      </button>
+    </nav>
+
+    <!-- ========== 全局弹层：Google OAuth 引导 ========== -->
+    <div class="modal" id="modal-oauth" hidden>
+      <div class="modal-card">
+        <h3 class="modal-title">绑定 Google 账号</h3>
+        <p class="modal-body">
+          为了把梦境保存到你自己的 Google Sheets，需要授权 Morpheus 访问 Google 表格。
+        </p>
+        <div class="modal-actions">
+          <button class="secondary-btn" id="btn-oauth-cancel">稍后再说</button>
+          <button class="primary-btn" id="btn-oauth-confirm">前往授权</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 全局错误卡 ========== -->
+    <div class="toast" id="toast" hidden></div>
+
+  </div>
+
+  <script src="scripts/mock-data.js"></script>
+  <script src="scripts/state.js"></script>
+  <script src="scripts/router.js"></script>
+  <script src="scripts/app.js"></script>
+</body>
+</html>

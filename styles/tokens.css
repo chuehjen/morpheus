@@ -1,0 +1,61 @@
+/* Design tokens — Aesop-inspired palette and typography
+   Colors are intentionally desaturated and warm. */
+
+:root {
+  /* Surfaces */
+  --bg: #F5F1E8;
+  --bg-soft: #EFE8DC;
+  --bg-sunk: #E5DDCF;
+  --border: #D8CCBA;
+  --border-strong: #C9BAA4;
+
+  /* Text */
+  --text: #1E1A16;
+  --text-secondary: #5A5146;
+  --text-muted: #8A7F72;
+
+  /* Accents */
+  --button-dark: #2B2926;
+  --button-dark-hover: #181615;
+  --tag-bg: #B8AA92;
+  --tag-bg-soft: #D8CCBA;
+  --tag-text: #2B2926;
+
+  /* Status — kept very low saturation */
+  --success: #7E8B72;
+  --error: #A06A5F;
+  --warning: #A98B5E;
+
+  /* Type */
+  --font-serif:
+    "Iowan Old Style",
+    "Palatino Linotype",
+    "Palatino",
+    "Times New Roman",
+    serif;
+
+  --font-sans:
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "Helvetica Neue",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
+    Arial,
+    sans-serif;
+
+  /* Sizing */
+  --pad-page: 20px;
+  --pad-block: 16px;
+  --gap-block: 24px;
+  --radius-card: 14px;
+  --radius-btn: 12px;
+  --radius-pill: 999px;
+
+  /* App width */
+  --app-max: 480px;
+
+  /* Bottom nav height */
+  --nav-h: 64px;
+}
