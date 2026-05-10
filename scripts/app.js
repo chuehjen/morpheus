@@ -26,7 +26,7 @@
     el.className = "toast" + (kind ? " is-" + kind : "");
     el.hidden = false;
     clearTimeout(el._t);
-    el._t = setTimeout(() => { el.hidden = true; }, 2400);
+    el._t = setTimeout(() => { el.hidden = true; }, 3000);
   }
 
   // ===== Network banner =====
@@ -122,12 +122,32 @@
     Router.show("recording");
     $("#rec-timer").textContent = "00:00";
 
+    // Start timer immediately
+    recStart = Date.now();
+    recTimer = setInterval(() => {
+      const sec = Math.floor((Date.now() - recStart) / 1000);
+      $("#rec-timer").textContent = formatMMSS(sec);
+      if (sec >= REC_LIMIT_SEC) stopRecording(true);
+    }, 250);
+
     if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      toast("当前浏览器不支持语音识别，已切换为手动模式", "error");
-      setTimeout(() => goToParse(""), 600);
+      toast("当前浏览器不支持语音识别，请手动输入", "error");
+      clearInterval(recTimer);
+      recTimer = null;
+      setTimeout(() => {
+        const draft = freshDraft("");
+        State.setDraft(draft);
+        renderConfirm(draft);
+        Router.show("confirm");
+      }, 800);
       return;
     }
 
+    startSpeechRecognition();
+  }
+
+  // 独立出来，便于 onend 时重启
+  function startSpeechRecognition() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SR();
     recognition.lang = "zh-CN";
@@ -137,20 +157,28 @@
     recognition.onresult = (e) => {
       let finalChunk = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalChunk += t;
+        if (e.results[i].isFinal) finalChunk += e.results[i][0].transcript;
       }
       if (finalChunk) rawText += finalChunk;
     };
 
     recognition.onerror = (e) => {
       if (speechErrored) return;
+
+      // no-speech = 静默片刻，不是真正的错误，让 onend 去重启
+      if (e.error === "no-speech") return;
+
       speechErrored = true;
-      const msg = e.error === "not-allowed"
-        ? "麦克风权限被拒绝，已切换为手动模式"
-        : e.error === "no-speech"
-        ? "没有检测到语音，已切换为手动模式"
-        : "语音识别出错，已切换为手动模式";
+
+      let msg;
+      if (e.error === "not-allowed") {
+        msg = "麦克风权限被拒绝，请在浏览器地址栏允许麦克风后重试";
+      } else if (e.error === "network") {
+        msg = "无法连接语音识别服务（需要翻墙或网络），已切换为手动模式";
+      } else {
+        msg = `语音识别出错（${e.error}），已切换为手动模式`;
+      }
+
       toast(msg, "error");
       cleanupRecognition();
       const draft = freshDraft(rawText.trim());
@@ -159,20 +187,23 @@
       Router.show("confirm");
     };
 
+    // Chrome 的 SpeechRecognition 即便设了 continuous，停顿后也会自动结束
+    // onend 里检查如果还在录音状态就重启，保证全程持续录制
+    recognition.onend = () => {
+      if (recTimer !== null && !speechErrored) {
+        setTimeout(() => {
+          if (recTimer !== null && !speechErrored) {
+            startSpeechRecognition();
+          }
+        }, 100);
+      }
+    };
+
     try {
       recognition.start();
     } catch (e) {
-      console.warn(e);
+      console.warn("recognition.start() failed:", e);
     }
-
-    recStart = Date.now();
-    recTimer = setInterval(() => {
-      const sec = Math.floor((Date.now() - recStart) / 1000);
-      $("#rec-timer").textContent = formatMMSS(sec);
-      if (sec >= REC_LIMIT_SEC) {
-        stopRecording(true);
-      }
-    }, 250);
   }
 
   function stopRecording(autoStopped) {
@@ -211,7 +242,6 @@
     runParseSteps();
 
     if (!text || text.length < 5) {
-      // Very short / empty — skip parse animation, go straight to confirm
       setTimeout(() => {
         clearParseSteps();
         const draft = freshDraft(text || "");
