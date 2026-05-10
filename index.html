@@ -85,6 +85,15 @@
             <li data-step="2">提炼主题与元素</li>
             <li data-step="3">生成摘要</li>
           </ul>
+
+          <div class="parse-error" id="parse-error" hidden>
+            <h3 class="parse-error__title">AI 解析失败</h3>
+            <p class="parse-error__sub">网络或服务异常，原始记录已保留。</p>
+            <div class="parse-error__actions">
+              <button class="secondary-btn" id="btn-parse-manual">手动填写</button>
+              <button class="primary-btn" id="btn-parse-retry">重试</button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -158,8 +167,11 @@
                     d="M9 18.5l6 6 12-12"/>
             </svg>
           </div>
-          <h2 class="saved-title">已保存到故事集</h2>
-          <p class="saved-sub">梦境已写入你自己的 Google Sheets。</p>
+          <h2 class="saved-title">已保存</h2>
+          <p class="saved-sub">
+            本次记录已写入本地缓存。<br />
+            Google Sheets 同步将在后续版本接入。
+          </p>
         </div>
 
         <div class="saved-actions">
@@ -236,22 +248,49 @@
 
         <div class="settings-list">
           <div class="settings-row">
-            <div class="settings-row__label">Google 账号</div>
+            <div class="settings-row__label">
+              Google 账号
+              <span class="mock-badge">演示</span>
+            </div>
             <div class="settings-row__value" id="settings-google-status">未绑定</div>
             <button class="secondary-btn small" id="btn-bind-google">绑定 Google</button>
           </div>
 
           <div class="settings-row">
-            <div class="settings-row__label">数据表</div>
+            <div class="settings-row__label">
+              数据表
+              <span class="mock-badge">演示</span>
+            </div>
             <div class="settings-row__value" id="settings-sheet-status">尚未创建</div>
             <button class="secondary-btn small" id="btn-rebuild-sheet">重建数据表</button>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row__label">示例数据</div>
+            <div class="settings-row__value muted">载入 3 条样例梦境，体验故事集页面。</div>
+            <button class="secondary-btn small" id="btn-load-demo">加载示例</button>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row__label">清空记录</div>
+            <div class="settings-row__value muted">删除当前所有本地缓存的梦境。</div>
+            <button class="secondary-btn small" id="btn-clear-all">清空</button>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row__label">
+              调试：模拟失败
+              <span class="mock-badge">仅 v0.1</span>
+            </div>
+            <div class="settings-row__value muted" id="settings-debug-status">关闭中</div>
+            <button class="secondary-btn small" id="btn-toggle-fail">开启</button>
           </div>
 
           <div class="settings-row">
             <div class="settings-row__label">关于 Morpheus</div>
             <div class="settings-row__value muted">
               一个安静的梦境记录工具。<br />
-              数据存储在你自己的 Google Sheets 中。
+              数据将保存到你自己的 Google Sheets（v0.2 接入）。
             </div>
           </div>
         </div>
@@ -282,9 +321,26 @@
         <p class="modal-body">
           为了把梦境保存到你自己的 Google Sheets，需要授权 Morpheus 访问 Google 表格。
         </p>
+        <p class="mock-note">
+          v0.1 为演示版本，点击「前往授权」会模拟绑定状态，不会真正访问你的 Google 账号。
+        </p>
         <div class="modal-actions">
           <button class="secondary-btn" id="btn-oauth-cancel">稍后再说</button>
           <button class="primary-btn" id="btn-oauth-confirm">前往授权</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 全局弹层：保存失败 ========== -->
+    <div class="modal" id="modal-save-error" hidden>
+      <div class="modal-card">
+        <h3 class="modal-title">保存失败</h3>
+        <p class="modal-body">
+          请检查网络或 Google 账号授权状态。已保留你的输入。
+        </p>
+        <div class="modal-actions">
+          <button class="secondary-btn" id="btn-save-copy">复制内容</button>
+          <button class="primary-btn" id="btn-save-retry">重试保存</button>
         </div>
       </div>
     </div>

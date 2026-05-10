@@ -8,11 +8,16 @@
   let recTimer = null;
   let recStart = 0;
   let recognition = null;
+  let speechErrored = false;
   let rawText = "";
   let parseTimer = null;
 
+  // remember the original text and the failed draft so retry / manual / copy can reach them
+  let lastParseText = "";
+  let pendingSave = null;
+
   // ----- DOM helpers -----
-  const $ = (sel, root = document) => root.querySelector(sel);
+  const $  = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   function toast(msg, kind) {
@@ -48,8 +53,22 @@
   $("#btn-empty-record")?.addEventListener("click", startRecording);
 
   // ===== Recording controls =====
-  $("#btn-stop-record").addEventListener("click", stopRecording);
+  $("#btn-stop-record").addEventListener("click", () => stopRecording(false));
   $("#btn-cancel-record").addEventListener("click", cancelRecording);
+
+  // ===== Parsing screen — error block actions =====
+  $("#btn-parse-retry").addEventListener("click", () => {
+    hideParseError();
+    runParseSteps();
+    finishParse(lastParseText);
+  });
+  $("#btn-parse-manual").addEventListener("click", () => {
+    hideParseError();
+    const draft = freshDraft(lastParseText);
+    State.setDraft(draft);
+    renderConfirm(draft);
+    Router.show("confirm");
+  });
 
   // ===== Confirm =====
   $("#btn-confirm-back").addEventListener("click", () => Router.show("home"));
@@ -59,8 +78,7 @@
   });
   $("#btn-save").addEventListener("click", handleSave);
 
-  // chip inputs
-  bindChipInput("#input-theme", "themes", "#chips-themes");
+  bindChipInput("#input-theme",   "themes",   "#chips-themes");
   bindChipInput("#input-element", "elements", "#chips-elements");
 
   // ===== Saved =====
@@ -85,7 +103,22 @@
       toast("请先绑定 Google 账号", "error");
       return;
     }
-    toast("已请求重建数据表（mock）", "success");
+    toast("已请求重建数据表（演示）", "success");
+  });
+  $("#btn-load-demo").addEventListener("click", () => {
+    State.loadDemoData();
+    toast("已加载示例数据", "success");
+    renderStoryList();
+  });
+  $("#btn-clear-all").addEventListener("click", () => {
+    if (!confirm("确定要清空所有梦境记录？此操作无法撤销。")) return;
+    State.clearAllDreams();
+    toast("已清空", "success");
+    renderStoryList();
+  });
+  $("#btn-toggle-fail").addEventListener("click", () => {
+    State.setDebugFail(!State.isDebugFail());
+    renderSettings();
   });
 
   // ===== Detail =====
@@ -96,34 +129,55 @@
     $("#modal-oauth").hidden = true;
   });
   $("#btn-oauth-confirm").addEventListener("click", () => {
-    // Mock OAuth: just mark as connected.
     State.setGoogleConnected(true);
     $("#modal-oauth").hidden = true;
-    toast("Google 账号已绑定", "success");
+    toast("Google 账号已绑定（演示）", "success");
     renderSettings();
-    // If a save was waiting on auth, resume it.
     if (pendingSave) {
-      const draft = pendingSave;
+      const d = pendingSave;
       pendingSave = null;
-      finalizeSave(draft);
+      finalizeSave(d);
     }
   });
 
-  let pendingSave = null;
   function openOAuth() {
     $("#modal-oauth").hidden = false;
   }
+
+  // ===== Save error modal =====
+  $("#btn-save-retry").addEventListener("click", () => {
+    $("#modal-save-error").hidden = true;
+    if (!pendingSave) return;
+    finalizeSave(pendingSave);
+  });
+  $("#btn-save-copy").addEventListener("click", async () => {
+    if (!pendingSave) return;
+    const d = pendingSave;
+    const text =
+      `日期：${d.date}\n` +
+      `心情：${d.tags.mood || ""}\n` +
+      `主题：${(d.tags.themes   || []).join("，")}\n` +
+      `元素：${(d.tags.elements || []).join("，")}\n\n` +
+      `摘要：\n${d.summary || ""}\n\n` +
+      `原文：\n${d.raw || ""}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("已复制到剪贴板", "success");
+    } catch (_) {
+      toast("复制失败，请手动选择", "error");
+    }
+  });
 
   // ============================================================
   //   Recording
   // ============================================================
   function startRecording() {
     rawText = "";
+    speechErrored = false;
     Router.show("recording");
     $("#rec-timer").textContent = "00:00";
 
     if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      // Fallback: skip straight to manual confirm with empty text.
       toast("当前浏览器不支持语音识别，已切换为手动模式", "error");
       setTimeout(() => goToParse(""), 600);
       return;
@@ -137,19 +191,28 @@
 
     recognition.onresult = (e) => {
       let finalChunk = "";
-      let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript;
         if (e.results[i].isFinal) finalChunk += t;
-        else interim += t;
       }
       if (finalChunk) rawText += finalChunk;
-      // We don't display the live transcript on this minimal screen,
-      // but keep the variable in scope in case the user wants to add it later.
     };
 
     recognition.onerror = (e) => {
-      console.warn("speech error", e.error);
+      if (speechErrored) return;
+      speechErrored = true;
+      const msg = e.error === "not-allowed"
+        ? "麦克风权限被拒绝，已切换为手动模式"
+        : e.error === "no-speech"
+        ? "没有检测到语音，已切换为手动模式"
+        : "语音识别出错，已切换为手动模式";
+      toast(msg, "error");
+      cleanupRecognition();
+      // Drop the user into the confirm screen with whatever raw we already captured.
+      const draft = freshDraft(rawText.trim());
+      State.setDraft(draft);
+      renderConfirm(draft);
+      Router.show("confirm");
     };
 
     try {
@@ -169,23 +232,24 @@
   }
 
   function stopRecording(autoStopped) {
-    if (recTimer) { clearInterval(recTimer); recTimer = null; }
-    if (recognition) {
-      try { recognition.stop(); } catch (_) {}
-      recognition = null;
-    }
+    cleanupRecognition();
+    if (speechErrored) return; // error path already handled the transition
     if (autoStopped) toast("已达 3 分钟上限，自动停止", "");
     goToParse(rawText.trim());
   }
 
   function cancelRecording() {
+    cleanupRecognition();
+    rawText = "";
+    Router.show("home");
+  }
+
+  function cleanupRecognition() {
     if (recTimer) { clearInterval(recTimer); recTimer = null; }
     if (recognition) {
       try { recognition.abort(); } catch (_) {}
       recognition = null;
     }
-    rawText = "";
-    Router.show("home");
   }
 
   function formatMMSS(sec) {
@@ -199,29 +263,49 @@
   // ============================================================
   function goToParse(text) {
     Router.show("parsing");
+    hideParseError();
     runParseSteps();
 
-    // If user gave us essentially nothing, drop straight to manual confirm.
     if (!text || text.length < 5) {
+      // Treat very short input as a manual case (no real AI call).
       setTimeout(() => {
         clearParseSteps();
-        const draft = freshDraft("");
+        const draft = freshDraft(text || "");
         State.setDraft(draft);
         renderConfirm(draft);
         Router.show("confirm");
-        toast("录音内容很短，请手动补充", "");
-      }, 1600);
+        if (text) toast("录音内容很短，请手动补充", "");
+      }, 1400);
       return;
     }
 
-    // Mock parse latency
+    finishParse(text);
+  }
+
+  function finishParse(text) {
+    lastParseText = text;
     setTimeout(() => {
+      // Debug toggle simulates an LLM failure for testing the error UI.
+      if (State.isDebugFail()) {
+        clearParseSteps();
+        showParseError();
+        return;
+      }
       clearParseSteps();
       const draft = mockParse(text);
       State.setDraft(draft);
       renderConfirm(draft);
       Router.show("confirm");
-    }, 2600);
+    }, 2400);
+  }
+
+  function showParseError() {
+    $("#parse-steps").hidden = true;
+    $("#parse-error").hidden = false;
+  }
+  function hideParseError() {
+    $("#parse-error").hidden = true;
+    $("#parse-steps").hidden = false;
   }
 
   function runParseSteps() {
@@ -261,7 +345,6 @@
   function mockParse(text) {
     const draft = freshDraft(text);
 
-    // Mood guess
     const moodHits = [
       { mood: "恐怖/惊悚", words: ["恐怖", "惊悚", "蟑螂", "鬼", "尸", "黑暗"] },
       { mood: "焦虑",       words: ["追", "迟到", "考试", "找不到", "晚了", "丢"] },
@@ -274,20 +357,16 @@
       if (m.words.some((w) => text.includes(w))) { draft.tags.mood = m.mood; break; }
     }
 
-    // Theme & element guess — pick a few keyword-ish substrings
     const possibleThemes = ["逃离", "追逐", "迷路", "返回", "童年", "考试", "飞行", "旅行", "失去", "重逢", "密室", "轮回"];
     const possibleElems  = ["楼梯", "厨房", "通道", "蟑螂", "森林", "海", "灯", "雨", "镜子", "门", "钥匙", "陌生人"];
 
     draft.tags.themes   = possibleThemes.filter((w) => text.includes(w)).slice(0, 4);
     draft.tags.elements = possibleElems.filter((w) => text.includes(w)).slice(0, 4);
 
-    // Summary: take up to 2 sentences from the raw text, lightly trimmed.
     const sentences = text.split(/[。.！？!?\n]/).map((s) => s.trim()).filter(Boolean);
-    if (sentences.length === 0) {
-      draft.summary = text.slice(0, 80);
-    } else {
-      draft.summary = sentences.slice(0, 2).join("。") + (sentences.length ? "。" : "");
-    }
+    draft.summary = sentences.length === 0
+      ? text.slice(0, 80)
+      : sentences.slice(0, 2).join("。") + "。";
 
     return draft;
   }
@@ -371,9 +450,15 @@
   }
 
   function finalizeSave(d) {
-    // v0.1: persist locally only. Real Sheets API replaces this later.
+    // Debug toggle simulates a Sheets write failure for testing the error UI.
+    if (State.isDebugFail()) {
+      pendingSave = d;
+      $("#modal-save-error").hidden = false;
+      return;
+    }
     State.addDream(d);
     State.clearDraft();
+    pendingSave = null;
     Router.show("saved");
   }
 
@@ -430,7 +515,7 @@
     $("#detail-summary").textContent = d.summary || "（无摘要）";
     $("#detail-raw").textContent = d.raw || "（无原文）";
 
-    fillReadonlyChips("#detail-themes", d.tags.themes);
+    fillReadonlyChips("#detail-themes",   d.tags.themes);
     fillReadonlyChips("#detail-elements", d.tags.elements);
 
     Router.show("storyDetail");
@@ -452,9 +537,17 @@
   // ============================================================
   function renderSettings() {
     const connected = State.isGoogleConnected();
-    $("#settings-google-status").textContent = connected ? "已绑定" : "未绑定";
+    $("#settings-google-status").textContent = connected ? "已绑定（演示）" : "未绑定";
     $("#settings-sheet-status").textContent  = connected ? (State.getSheetName() || "Morpheus Dreams") : "尚未创建";
     $("#btn-bind-google").textContent = connected ? "重新绑定" : "绑定 Google";
+
+    const failOn = State.isDebugFail();
+    $("#settings-debug-status").textContent = failOn
+      ? "已开启 — 解析与保存会失败"
+      : "关闭中";
+    const btn = $("#btn-toggle-fail");
+    btn.textContent = failOn ? "关闭" : "开启";
+    btn.classList.toggle("is-on", failOn);
   }
 
   // ============================================================

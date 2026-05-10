@@ -277,3 +277,37 @@
 
 .toast.is-error { background: var(--error); }
 .toast.is-success { background: var(--success); }
+
+/* ----- Mock indicators ----- */
+.mock-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  vertical-align: 1px;
+}
+
+.mock-note {
+  margin-top: -8px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-btn);
+  background: var(--bg-soft);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* ----- Toggleable secondary button (debug switch) ----- */
+.secondary-btn.is-on {
+  background: var(--button-dark);
+  color: #F5F1E8;
+  border-color: var(--button-dark);
+}

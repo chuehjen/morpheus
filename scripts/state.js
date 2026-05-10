@@ -5,7 +5,8 @@
   const LS_KEYS = {
     dreams: "morpheus.dreams.cache.v1",
     google: "morpheus.google.connected.v1",
-    sheet:  "morpheus.sheet.id.v1"
+    sheet:  "morpheus.sheet.id.v1",
+    debug:  "morpheus.debug.fail.v1"
   };
 
   // current dream being edited on the confirm screen
@@ -16,11 +17,11 @@
       const raw = localStorage.getItem(LS_KEYS.dreams);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch (_) {}
-    // first run — seed with mock data so the Stories tab is not empty
-    return Array.isArray(window.MOCK_DREAMS) ? [...window.MOCK_DREAMS] : [];
+    // No mock seed on first run — empty list shows the empty-state UI.
+    return [];
   }
 
   function persistDreams(list) {
@@ -34,7 +35,6 @@
   const State = {
     // ----- dreams -----
     getDreams() {
-      // newest first by date
       return [...dreams].sort((a, b) => (a.date < b.date ? 1 : -1));
     },
     getDream(id) {
@@ -44,8 +44,15 @@
       dreams.unshift(entry);
       persistDreams(dreams);
     },
-    resetDreamsToMock() {
-      dreams = Array.isArray(window.MOCK_DREAMS) ? [...window.MOCK_DREAMS] : [];
+    /** Replace the current list with the bundled mock entries. */
+    loadDemoData() {
+      if (Array.isArray(window.MOCK_DREAMS)) {
+        dreams = [...window.MOCK_DREAMS];
+        persistDreams(dreams);
+      }
+    },
+    clearAllDreams() {
+      dreams = [];
       persistDreams(dreams);
     },
 
@@ -64,6 +71,15 @@
     },
     getSheetName() {
       return this.isGoogleConnected() ? "Morpheus Dreams" : null;
+    },
+
+    // ----- Debug fail toggle (used to test parse/save failure UIs) -----
+    isDebugFail() {
+      return localStorage.getItem(LS_KEYS.debug) === "1";
+    },
+    setDebugFail(v) {
+      if (v) localStorage.setItem(LS_KEYS.debug, "1");
+      else localStorage.removeItem(LS_KEYS.debug);
     },
 
     // ----- helpers -----

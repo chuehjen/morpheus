@@ -213,6 +213,42 @@
   background: var(--success);
 }
 
+/* Parse error state — replaces step list when AI parse fails */
+.parse-error {
+  max-width: 320px;
+  margin: 0 auto;
+  text-align: center;
+  padding: 24px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg-soft);
+}
+
+.parse-error__title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+.parse-error__sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.parse-error__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.parse-error__actions .secondary-btn,
+.parse-error__actions .primary-btn {
+  flex: 1;
+}
+
 /* ===== 4. Confirm ===== */
 .confirm-form {
   margin-bottom: 24px;
