@@ -1,4 +1,4 @@
-/* App entry — wires up DOM events, recording, mock AI parse, save. */
+/* App entry — wires up DOM events, recording, local parse, save. */
 
 (function () {
   const { State, Router } = window;
@@ -12,9 +12,8 @@
   let rawText = "";
   let parseTimer = null;
 
-  // remember the original text and the failed draft so retry / manual / copy can reach them
+  // remember the last text for parse retry
   let lastParseText = "";
-  let pendingSave = null;
 
   // ----- DOM helpers -----
   const $  = (sel, root = document) => root.querySelector(sel);
@@ -48,9 +47,17 @@
     Router.show(target);
   });
 
-  // ===== Home: start recording =====
+  // ===== Home =====
   $("#btn-start-record").addEventListener("click", startRecording);
   $("#btn-empty-record")?.addEventListener("click", startRecording);
+
+  // 直接文字输入：跳过录音，直接进确认页
+  $("#btn-text-input").addEventListener("click", () => {
+    const draft = freshDraft("");
+    State.setDraft(draft);
+    renderConfirm(draft);
+    Router.show("confirm");
+  });
 
   // ===== Recording controls =====
   $("#btn-stop-record").addEventListener("click", () => stopRecording(false));
@@ -90,83 +97,21 @@
 
   // ===== Stories =====
   $("#btn-open-settings").addEventListener("click", () => {
-    renderSettings();
     Router.show("settings");
   });
   $("#story-search").addEventListener("input", () => renderStoryList());
 
   // ===== Settings =====
   $("#btn-settings-back").addEventListener("click", () => Router.show("stories"));
-  $("#btn-bind-google").addEventListener("click", () => openOAuth());
-  $("#btn-rebuild-sheet").addEventListener("click", () => {
-    if (!State.isGoogleConnected()) {
-      toast("请先绑定 Google 账号", "error");
-      return;
-    }
-    toast("已请求重建数据表（演示）", "success");
-  });
-  $("#btn-load-demo").addEventListener("click", () => {
-    State.loadDemoData();
-    toast("已加载示例数据", "success");
-    renderStoryList();
-  });
   $("#btn-clear-all").addEventListener("click", () => {
     if (!confirm("确定要清空所有梦境记录？此操作无法撤销。")) return;
     State.clearAllDreams();
     toast("已清空", "success");
     renderStoryList();
   });
-  $("#btn-toggle-fail").addEventListener("click", () => {
-    State.setDebugFail(!State.isDebugFail());
-    renderSettings();
-  });
 
   // ===== Detail =====
   $("#btn-detail-back").addEventListener("click", () => Router.show("stories"));
-
-  // ===== OAuth modal =====
-  $("#btn-oauth-cancel").addEventListener("click", () => {
-    $("#modal-oauth").hidden = true;
-  });
-  $("#btn-oauth-confirm").addEventListener("click", () => {
-    State.setGoogleConnected(true);
-    $("#modal-oauth").hidden = true;
-    toast("Google 账号已绑定（演示）", "success");
-    renderSettings();
-    if (pendingSave) {
-      const d = pendingSave;
-      pendingSave = null;
-      finalizeSave(d);
-    }
-  });
-
-  function openOAuth() {
-    $("#modal-oauth").hidden = false;
-  }
-
-  // ===== Save error modal =====
-  $("#btn-save-retry").addEventListener("click", () => {
-    $("#modal-save-error").hidden = true;
-    if (!pendingSave) return;
-    finalizeSave(pendingSave);
-  });
-  $("#btn-save-copy").addEventListener("click", async () => {
-    if (!pendingSave) return;
-    const d = pendingSave;
-    const text =
-      `日期：${d.date}\n` +
-      `心情：${d.tags.mood || ""}\n` +
-      `主题：${(d.tags.themes   || []).join("，")}\n` +
-      `元素：${(d.tags.elements || []).join("，")}\n\n` +
-      `摘要：\n${d.summary || ""}\n\n` +
-      `原文：\n${d.raw || ""}`;
-    try {
-      await navigator.clipboard.writeText(text);
-      toast("已复制到剪贴板", "success");
-    } catch (_) {
-      toast("复制失败，请手动选择", "error");
-    }
-  });
 
   // ============================================================
   //   Recording
@@ -208,7 +153,6 @@
         : "语音识别出错，已切换为手动模式";
       toast(msg, "error");
       cleanupRecognition();
-      // Drop the user into the confirm screen with whatever raw we already captured.
       const draft = freshDraft(rawText.trim());
       State.setDraft(draft);
       renderConfirm(draft);
@@ -233,7 +177,7 @@
 
   function stopRecording(autoStopped) {
     cleanupRecognition();
-    if (speechErrored) return; // error path already handled the transition
+    if (speechErrored) return;
     if (autoStopped) toast("已达 3 分钟上限，自动停止", "");
     goToParse(rawText.trim());
   }
@@ -259,7 +203,7 @@
   }
 
   // ============================================================
-  //   Parse (mock LLM)
+  //   Parse (heuristic — no API key needed for v0.1)
   // ============================================================
   function goToParse(text) {
     Router.show("parsing");
@@ -267,7 +211,7 @@
     runParseSteps();
 
     if (!text || text.length < 5) {
-      // Treat very short input as a manual case (no real AI call).
+      // Very short / empty — skip parse animation, go straight to confirm
       setTimeout(() => {
         clearParseSteps();
         const draft = freshDraft(text || "");
@@ -285,12 +229,6 @@
   function finishParse(text) {
     lastParseText = text;
     setTimeout(() => {
-      // Debug toggle simulates an LLM failure for testing the error UI.
-      if (State.isDebugFail()) {
-        clearParseSteps();
-        showParseError();
-        return;
-      }
       clearParseSteps();
       const draft = mockParse(text);
       State.setDraft(draft);
@@ -341,7 +279,7 @@
     };
   }
 
-  // Tiny heuristic "AI" so the demo feels alive without an API key.
+  // Heuristic parse — extracts mood/themes/elements from text keywords
   function mockParse(text) {
     const draft = freshDraft(text);
 
@@ -427,13 +365,16 @@
   function readDraftFromForm() {
     const d = State.getDraft();
     if (!d) return null;
-    d.date    = $("#f-date").value || State.todayISO();
+    d.date      = $("#f-date").value || State.todayISO();
     d.tags.mood = $("#f-mood").value;
-    d.summary = $("#f-summary").value.trim();
-    d.raw     = $("#f-raw").value.trim();
+    d.summary   = $("#f-summary").value.trim();
+    d.raw       = $("#f-raw").value.trim();
     return d;
   }
 
+  // ============================================================
+  //   Save — writes directly to localStorage, no auth required
+  // ============================================================
   function handleSave() {
     const d = readDraftFromForm();
     if (!d) return;
@@ -441,24 +382,8 @@
       toast("摘要和原文都为空，写点什么吧", "error");
       return;
     }
-    if (!State.isGoogleConnected()) {
-      pendingSave = d;
-      openOAuth();
-      return;
-    }
-    finalizeSave(d);
-  }
-
-  function finalizeSave(d) {
-    // Debug toggle simulates a Sheets write failure for testing the error UI.
-    if (State.isDebugFail()) {
-      pendingSave = d;
-      $("#modal-save-error").hidden = false;
-      return;
-    }
     State.addDream(d);
     State.clearDraft();
-    pendingSave = null;
     Router.show("saved");
   }
 
@@ -530,24 +455,6 @@
       c.textContent = label;
       wrap.appendChild(c);
     });
-  }
-
-  // ============================================================
-  //   Settings
-  // ============================================================
-  function renderSettings() {
-    const connected = State.isGoogleConnected();
-    $("#settings-google-status").textContent = connected ? "已绑定（演示）" : "未绑定";
-    $("#settings-sheet-status").textContent  = connected ? (State.getSheetName() || "Morpheus Dreams") : "尚未创建";
-    $("#btn-bind-google").textContent = connected ? "重新绑定" : "绑定 Google";
-
-    const failOn = State.isDebugFail();
-    $("#settings-debug-status").textContent = failOn
-      ? "已开启 — 解析与保存会失败"
-      : "关闭中";
-    const btn = $("#btn-toggle-fail");
-    btn.textContent = failOn ? "关闭" : "开启";
-    btn.classList.toggle("is-on", failOn);
   }
 
   // ============================================================
