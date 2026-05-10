@@ -130,16 +130,22 @@
       if (sec >= REC_LIMIT_SEC) stopRecording(true);
     }, 250);
 
-    if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      toast("当前浏览器不支持语音识别，请手动输入", "error");
+    // iOS Safari 有 webkitSpeechRecognition 但对 web app 禁用（service-not-allowed）
+    // 直接跳过录音，进手动输入
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+    if (isIOS || !("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
       clearInterval(recTimer);
       recTimer = null;
-      setTimeout(() => {
-        const draft = freshDraft("");
-        State.setDraft(draft);
-        renderConfirm(draft);
-        Router.show("confirm");
-      }, 800);
+      const draft = freshDraft("");
+      State.setDraft(draft);
+      renderConfirm(draft);
+      Router.show("confirm");
+      if (isIOS) {
+        toast("iOS Safari 不支持网页语音录入，请直接文字输入", "");
+      } else {
+        toast("当前浏览器不支持语音识别，请手动输入", "");
+      }
       return;
     }
 
@@ -171,10 +177,10 @@
       speechErrored = true;
 
       let msg;
-      if (e.error === "not-allowed") {
-        msg = "麦克风权限被拒绝，请在浏览器地址栏允许麦克风后重试";
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        msg = "麦克风权限被拒绝，请在浏览器设置中允许麦克风后重试";
       } else if (e.error === "network") {
-        msg = "无法连接语音识别服务（需要翻墙或网络），已切换为手动模式";
+        msg = "无法连接语音识别服务（可能需要翻墙），已切换为手动模式";
       } else {
         msg = `语音识别出错（${e.error}），已切换为手动模式`;
       }
