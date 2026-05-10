@@ -80,3 +80,4 @@ morpheus/
 - v0.3：接入 Google OAuth + Sheets API
 - v0.4：搜索增强、标签筛选、情绪趋势统计
 - v0.5：导出 Markdown / PDF
+-     trigger deploy
