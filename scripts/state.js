@@ -1,99 +1,138 @@
-/* In-memory + localStorage state for v0.1.
-   Real Sheets/OAuth integration replaces these reads/writes later. */
+import Native from './native.js';
 
-(function () {
-  const LS_KEYS = {
-    dreams: "morpheus.dreams.cache.v1",
-    google: "morpheus.google.connected.v1",
-    sheet:  "morpheus.sheet.id.v1",
-    debug:  "morpheus.debug.fail.v1"
+const LS_KEYS = {
+  dreams: 'morpheus.dreams.cache.v1',
+  google: 'morpheus.google.connected.v1',
+  sheet: 'morpheus.sheet.id.v1',
+  draft: 'morpheus.draft.v1',
+  settings: 'morpheus.settings.v1',
+};
+
+function sortDreamsDesc(list) {
+  return [...list].sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+function normalizeDream(entry) {
+  return {
+    id: entry.id || State.newId(),
+    date: entry.date || State.todayISO(),
+    tags: {
+      mood: entry?.tags?.mood || '奇幻',
+      themes: Array.isArray(entry?.tags?.themes) ? entry.tags.themes.slice(0, 4) : [],
+      elements: Array.isArray(entry?.tags?.elements) ? entry.tags.elements.slice(0, 4) : [],
+    },
+    summary: entry.summary || '',
+    raw: entry.raw || '',
   };
+}
 
-  // current dream being edited on the confirm screen
-  let draft = null;
+const State = {
+  _draft: null,
+  _dreams: null,
+  _initialized: false,
 
-  function loadDreams() {
-    try {
-      const raw = localStorage.getItem(LS_KEYS.dreams);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (_) {}
-    // No mock seed on first run — empty list shows the empty-state UI.
-    return [];
-  }
+  async ensureReady() {
+    if (this._initialized) return;
 
-  function persistDreams(list) {
-    try {
-      localStorage.setItem(LS_KEYS.dreams, JSON.stringify(list));
-    } catch (_) {}
-  }
-
-  let dreams = loadDreams();
-
-  const State = {
-    // ----- dreams -----
-    getDreams() {
-      return [...dreams].sort((a, b) => (a.date < b.date ? 1 : -1));
-    },
-    getDream(id) {
-      return dreams.find((d) => d.id === id) || null;
-    },
-    addDream(entry) {
-      dreams.unshift(entry);
-      persistDreams(dreams);
-    },
-    /** Replace the current list with the bundled mock entries. */
-    loadDemoData() {
-      if (Array.isArray(window.MOCK_DREAMS)) {
-        dreams = [...window.MOCK_DREAMS];
-        persistDreams(dreams);
-      }
-    },
-    clearAllDreams() {
-      dreams = [];
-      persistDreams(dreams);
-    },
-
-    // ----- draft (in-memory only) -----
-    setDraft(d) { draft = d; },
-    getDraft()  { return draft; },
-    clearDraft() { draft = null; },
-
-    // ----- Google bind status (mocked for v0.1) -----
-    isGoogleConnected() {
-      return localStorage.getItem(LS_KEYS.google) === "1";
-    },
-    setGoogleConnected(v) {
-      if (v) localStorage.setItem(LS_KEYS.google, "1");
-      else localStorage.removeItem(LS_KEYS.google);
-    },
-    getSheetName() {
-      return this.isGoogleConnected() ? "Morpheus Dreams" : null;
-    },
-
-    // ----- Debug fail toggle (used to test parse/save failure UIs) -----
-    isDebugFail() {
-      return localStorage.getItem(LS_KEYS.debug) === "1";
-    },
-    setDebugFail(v) {
-      if (v) localStorage.setItem(LS_KEYS.debug, "1");
-      else localStorage.removeItem(LS_KEYS.debug);
-    },
-
-    // ----- helpers -----
-    todayISO() {
-      const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    },
-    newId() {
-      return "d-" + Date.now() + "-" + Math.random().toString(16).slice(2, 6);
+    const storedDreams = await Native.storageGet(LS_KEYS.dreams);
+    if (Array.isArray(storedDreams)) {
+      this._dreams = storedDreams.map(normalizeDream);
+    } else {
+      this._dreams = [];
+      await Native.storageSet(LS_KEYS.dreams, this._dreams);
     }
-  };
 
-  window.State = State;
-})();
+    this._draft = (await Native.storageGet(LS_KEYS.draft)) || null;
+    this._initialized = true;
+  },
+
+  async getDreams() {
+    await this.ensureReady();
+    return sortDreamsDesc(this._dreams);
+  },
+
+  async getDream(id) {
+    await this.ensureReady();
+    return this._dreams.find((d) => d.id === id) || null;
+  },
+
+  async addDream(entry) {
+    await this.ensureReady();
+    const normalized = normalizeDream(entry);
+    this._dreams.unshift(normalized);
+    this._dreams = sortDreamsDesc(this._dreams);
+    await Native.storageSet(LS_KEYS.dreams, this._dreams);
+    return normalized;
+  },
+
+  async clearAllDreams() {
+    await this.ensureReady();
+    this._dreams = [];
+    await Native.storageSet(LS_KEYS.dreams, []);
+  },
+
+
+  async setDraft(d) {
+    await this.ensureReady();
+    this._draft = d || null;
+    if (d) {
+      await Native.storageSet(LS_KEYS.draft, d);
+    } else {
+      await Native.storageRemove(LS_KEYS.draft);
+    }
+  },
+
+  async getDraft() {
+    await this.ensureReady();
+    return this._draft;
+  },
+
+  async clearDraft() {
+    await this.setDraft(null);
+  },
+
+  async isGoogleConnected() {
+    return !!(await Native.storageGet(LS_KEYS.google));
+  },
+
+  async setGoogleConnected(v) {
+    if (v) await Native.storageSet(LS_KEYS.google, 1);
+    else await Native.storageRemove(LS_KEYS.google);
+  },
+
+  async getSheetName() {
+    return (await this.isGoogleConnected()) ? 'Morpheus Dreams' : null;
+  },
+
+  async getSettings() {
+    return (
+      (await Native.storageGet(LS_KEYS.settings)) || {
+        reminderEnabled: false,
+        reminderHour: 7,
+        reminderMinute: 0,
+        language: 'zh-CN',
+      }
+    );
+  },
+
+  async setSettings(patch) {
+    const next = { ...(await this.getSettings()), ...patch };
+    await Native.storageSet(LS_KEYS.settings, next);
+    return next;
+  },
+
+  todayISO() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  },
+
+  newId() {
+    return 'd-' + Date.now() + '-' + Math.random().toString(16).slice(2, 6);
+  },
+};
+
+window.State = State;
+export default State;

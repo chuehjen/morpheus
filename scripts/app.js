@@ -1,271 +1,187 @@
-/* App entry — wires up DOM events, recording, local parse, save. */
+import Native from './native.js';
+import State from './state.js';
 
 (function () {
-  const { State, Router } = window;
-
-  const REC_LIMIT_SEC = 180; // 3 min hard cap
+  const { Router } = window;
+  const REC_LIMIT_SEC = 180;
 
   let recTimer = null;
   let recStart = 0;
-  let recognition = null;
-  let speechErrored = false;
-  let rawText = "";
+  let rawText = '';
   let parseTimer = null;
+  let lastParseText = '';
+  let isStoppingRecording = false;
 
-  // remember the last text for parse retry
-  let lastParseText = "";
-
-  // ----- DOM helpers -----
-  const $  = (sel, root = document) => root.querySelector(sel);
+  const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   function toast(msg, kind) {
-    const el = $("#toast");
+    const el = $('#toast');
     if (!el) return;
     el.textContent = msg;
-    el.className = "toast" + (kind ? " is-" + kind : "");
+    el.className = 'toast' + (kind ? ' is-' + kind : '');
     el.hidden = false;
     clearTimeout(el._t);
-    el._t = setTimeout(() => { el.hidden = true; }, 3000);
+    el._t = setTimeout(() => {
+      el.hidden = true;
+    }, 3000);
   }
 
-  // ===== Network banner =====
   function syncNetBanner() {
-    const banner = $("#net-banner");
+    const banner = $('#net-banner');
     if (!banner) return;
-    banner.hidden = navigator.onLine;
+    banner.hidden = navigator.onLine || Native.isNativeApp();
   }
-  window.addEventListener("online",  syncNetBanner);
-  window.addEventListener("offline", syncNetBanner);
 
-  // ===== Tabs =====
-  document.addEventListener("click", (e) => {
-    const tab = e.target.closest(".tab");
-    if (!tab) return;
-    const target = tab.dataset.tabTarget;
-    if (target === "stories") renderStoryList();
-    Router.show(target);
-  });
+  async function init() {
+    bindEvents();
+    syncNetBanner();
+    window.addEventListener('online', syncNetBanner);
+    window.addEventListener('offline', syncNetBanner);
+    await State.ensureReady();
+  }
 
-  // ===== Home =====
-  $("#btn-start-record").addEventListener("click", startRecording);
-  $("#btn-empty-record")?.addEventListener("click", startRecording);
+  function bindEvents() {
+    document.addEventListener('click', async (e) => {
+      const tab = e.target.closest('.tab');
+      if (!tab) return;
+      const target = tab.dataset.tabTarget;
+      if (target === 'stories') await renderStoryList();
+      Router.show(target);
+    });
 
-  // 直接文字输入：跳过录音，直接进确认页
-  $("#btn-text-input").addEventListener("click", () => {
-    const draft = freshDraft("");
-    State.setDraft(draft);
+    $('#btn-start-record')?.addEventListener('click', () => void startRecording());
+    $('#btn-empty-record')?.addEventListener('click', () => void startRecording());
+    $('#btn-text-input')?.addEventListener('click', () => void openTextInput());
+
+    $('#btn-stop-record')?.addEventListener('click', () => void stopRecording(false));
+    $('#btn-cancel-record')?.addEventListener('click', () => void cancelRecording());
+
+    $('#btn-parse-retry')?.addEventListener('click', () => {
+      hideParseError();
+      runParseSteps();
+      finishParse(lastParseText);
+    });
+    $('#btn-parse-manual')?.addEventListener('click', () => void openManualConfirmFromParse());
+
+    $('#btn-confirm-back')?.addEventListener('click', () => Router.show('home'));
+    $('#btn-redo')?.addEventListener('click', () => void redoRecording());
+    $('#btn-save')?.addEventListener('click', () => void handleSave());
+    bindChipInput('#input-theme', 'themes', '#chips-themes');
+    bindChipInput('#input-element', 'elements', '#chips-elements');
+
+    $('#btn-go-stories')?.addEventListener('click', () => void goStories());
+    $('#btn-go-home')?.addEventListener('click', () => Router.show('home'));
+
+    $('#btn-open-settings')?.addEventListener('click', () => Router.show('settings'));
+    $('#story-search')?.addEventListener('input', () => void renderStoryList());
+
+    $('#btn-settings-back')?.addEventListener('click', () => Router.show('stories'));
+    $('#btn-clear-all')?.addEventListener('click', () => void clearAllDreams());
+
+    $('#btn-detail-back')?.addEventListener('click', () => Router.show('stories'));
+  }
+
+  async function openTextInput() {
+    const draft = freshDraft('');
+    await State.setDraft(draft);
     renderConfirm(draft);
-    Router.show("confirm");
-  });
+    Router.show('confirm');
+    setTimeout(() => $('#f-raw')?.focus(), 100);
+  }
 
-  // ===== Recording controls =====
-  $("#btn-stop-record").addEventListener("click", () => stopRecording(false));
-  $("#btn-cancel-record").addEventListener("click", cancelRecording);
+  async function startRecording() {
+    rawText = '';
+    isStoppingRecording = false;
+    Router.show('recording');
+    if ($('#rec-timer')) $('#rec-timer').textContent = '00:00';
 
-  // ===== Parsing screen — error block actions =====
-  $("#btn-parse-retry").addEventListener("click", () => {
-    hideParseError();
-    runParseSteps();
-    finishParse(lastParseText);
-  });
-  $("#btn-parse-manual").addEventListener("click", () => {
-    hideParseError();
-    const draft = freshDraft(lastParseText);
-    State.setDraft(draft);
-    renderConfirm(draft);
-    Router.show("confirm");
-  });
+    const granted = await Native.requestSpeechPermission();
+    if (!granted) {
+      toast('请在 iPhone 设置中允许 Morpheus 使用语音识别与麦克风', 'error');
+      await openTextInput();
+      return;
+    }
 
-  // ===== Confirm =====
-  $("#btn-confirm-back").addEventListener("click", () => Router.show("home"));
-  $("#btn-redo").addEventListener("click", () => {
-    State.clearDraft();
-    startRecording();
-  });
-  $("#btn-save").addEventListener("click", handleSave);
-
-  bindChipInput("#input-theme",   "themes",   "#chips-themes");
-  bindChipInput("#input-element", "elements", "#chips-elements");
-
-  // ===== Saved =====
-  $("#btn-go-stories").addEventListener("click", () => {
-    renderStoryList();
-    Router.show("stories");
-  });
-  $("#btn-go-home").addEventListener("click", () => Router.show("home"));
-
-  // ===== Stories =====
-  $("#btn-open-settings").addEventListener("click", () => {
-    Router.show("settings");
-  });
-  $("#story-search").addEventListener("input", () => renderStoryList());
-
-  // ===== Settings =====
-  $("#btn-settings-back").addEventListener("click", () => Router.show("stories"));
-  $("#btn-clear-all").addEventListener("click", () => {
-    if (!confirm("确定要清空所有梦境记录？此操作无法撤销。")) return;
-    State.clearAllDreams();
-    toast("已清空", "success");
-    renderStoryList();
-  });
-
-  // ===== Detail =====
-  $("#btn-detail-back").addEventListener("click", () => Router.show("stories"));
-
-  // ============================================================
-  //   Recording
-  // ============================================================
-  function startRecording() {
-    rawText = "";
-    speechErrored = false;
-    Router.show("recording");
-    $("#rec-timer").textContent = "00:00";
-
-    // Start timer immediately
     recStart = Date.now();
     recTimer = setInterval(() => {
       const sec = Math.floor((Date.now() - recStart) / 1000);
-      $("#rec-timer").textContent = formatMMSS(sec);
-      if (sec >= REC_LIMIT_SEC) stopRecording(true);
+      if ($('#rec-timer')) $('#rec-timer').textContent = formatMMSS(sec);
+      if (sec >= REC_LIMIT_SEC) void stopRecording(true);
     }, 250);
 
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-
-    // iOS Safari 禁用了网页 SpeechRecognition（service-not-allowed）
-    // 直接进确认页，聚焦原始记录框，引导用键盘 🎤 听写
-    if (isIOS) {
-      clearInterval(recTimer);
-      recTimer = null;
-      const draft = freshDraft("");
-      State.setDraft(draft);
-      renderConfirm(draft);
-      Router.show("confirm");
-      // 延迟聚焦让页面先切换完成，键盘弹出
-      setTimeout(() => {
-        const el = document.getElementById("f-raw");
-        if (el) el.focus();
-      }, 150);
-      return;
-    }
-
-    if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      clearInterval(recTimer);
-      recTimer = null;
-      const draft = freshDraft("");
-      State.setDraft(draft);
-      renderConfirm(draft);
-      Router.show("confirm");
-      toast("当前浏览器不支持语音识别，请手动输入", "");
-      return;
-    }
-
-    startSpeechRecognition();
+    await Native.startListening({
+      language: 'zh-CN',
+      onPartial: (text) => {
+        rawText = text || rawText;
+      },
+      onFinal: (text) => {
+        rawText = text || rawText;
+      },
+      onError: async (code) => {
+        cleanupRecordingTimer();
+        toast(`语音识别出错（${code}），已切换为手动输入`, 'error');
+        const draft = freshDraft(rawText.trim());
+        await State.setDraft(draft);
+        renderConfirm(draft);
+        Router.show('confirm');
+      },
+    });
   }
 
-  // 独立出来，便于 onend 时重启
-  function startSpeechRecognition() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SR();
-    recognition.lang = "zh-CN";
-    recognition.continuous = true;
-    recognition.interimResults = true;
+  async function stopRecording(autoStopped = false) {
+    if (isStoppingRecording) return;
+    isStoppingRecording = true;
 
-    recognition.onresult = (e) => {
-      let finalChunk = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalChunk += e.results[i][0].transcript;
-      }
-      if (finalChunk) rawText += finalChunk;
-    };
+    cleanupRecordingTimer();
+    if (autoStopped) toast('已达 3 分钟上限，自动停止', '');
 
-    recognition.onerror = (e) => {
-      if (speechErrored) return;
+    const finalText = await Native.stopListening();
+    rawText = (finalText || rawText || '').trim();
+    isStoppingRecording = false;
+    goToParse(rawText);
+  }
 
-      // no-speech = 静默片刻，不是真正的错误，让 onend 去重启
-      if (e.error === "no-speech") return;
-
-      speechErrored = true;
-
-      let msg;
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        msg = "麦克风权限被拒绝，请在浏览器设置中允许麦克风后重试";
-      } else if (e.error === "network") {
-        msg = "无法连接语音识别服务（可能需要翻墙），已切换为手动模式";
-      } else {
-        msg = `语音识别出错（${e.error}），已切换为手动模式`;
-      }
-
-      toast(msg, "error");
-      cleanupRecognition();
-      const draft = freshDraft(rawText.trim());
-      State.setDraft(draft);
-      renderConfirm(draft);
-      Router.show("confirm");
-    };
-
-    // Chrome 的 SpeechRecognition 即便设了 continuous，停顿后也会自动结束
-    // onend 里检查如果还在录音状态就重启，保证全程持续录制
-    recognition.onend = () => {
-      if (recTimer !== null && !speechErrored) {
-        setTimeout(() => {
-          if (recTimer !== null && !speechErrored) {
-            startSpeechRecognition();
-          }
-        }, 100);
-      }
-    };
-
+  async function cancelRecording() {
+    cleanupRecordingTimer();
+    rawText = '';
     try {
-      recognition.start();
-    } catch (e) {
-      console.warn("recognition.start() failed:", e);
-    }
+      await Native.stopListening();
+    } catch (_) {}
+    Router.show('home');
   }
 
-  function stopRecording(autoStopped) {
-    cleanupRecognition();
-    if (speechErrored) return;
-    if (autoStopped) toast("已达 3 分钟上限，自动停止", "");
-    goToParse(rawText.trim());
-  }
-
-  function cancelRecording() {
-    cleanupRecognition();
-    rawText = "";
-    Router.show("home");
-  }
-
-  function cleanupRecognition() {
-    if (recTimer) { clearInterval(recTimer); recTimer = null; }
-    if (recognition) {
-      try { recognition.abort(); } catch (_) {}
-      recognition = null;
+  function cleanupRecordingTimer() {
+    if (recTimer) {
+      clearInterval(recTimer);
+      recTimer = null;
     }
   }
 
   function formatMMSS(sec) {
-    const m = String(Math.floor(sec / 60)).padStart(2, "0");
-    const s = String(sec % 60).padStart(2, "0");
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
     return `${m}:${s}`;
   }
 
-  // ============================================================
-  //   Parse (heuristic — no API key needed for v0.1)
-  // ============================================================
+  function formatDate(value) {
+    if (!value) return '';
+    return String(value).replace(/-/g, '.');
+  }
+
   function goToParse(text) {
-    Router.show("parsing");
+    Router.show('parsing');
     hideParseError();
     runParseSteps();
 
     if (!text || text.length < 5) {
-      setTimeout(() => {
+      setTimeout(async () => {
         clearParseSteps();
-        const draft = freshDraft(text || "");
-        State.setDraft(draft);
+        const draft = freshDraft(text || '');
+        await State.setDraft(draft);
         renderConfirm(draft);
-        Router.show("confirm");
-        if (text) toast("录音内容很短，请手动补充", "");
+        Router.show('confirm');
+        if (text) toast('录音内容很短，请手动补充', '');
       }, 1400);
       return;
     }
@@ -275,33 +191,34 @@
 
   function finishParse(text) {
     lastParseText = text;
-    setTimeout(() => {
+    setTimeout(async () => {
       clearParseSteps();
       const draft = mockParse(text);
-      State.setDraft(draft);
+      await State.setDraft(draft);
       renderConfirm(draft);
-      Router.show("confirm");
+      Router.show('confirm');
     }, 2400);
   }
 
   function showParseError() {
-    $("#parse-steps").hidden = true;
-    $("#parse-error").hidden = false;
+    $('#parse-steps') && ($('#parse-steps').hidden = true);
+    $('#parse-error') && ($('#parse-error').hidden = false);
   }
+
   function hideParseError() {
-    $("#parse-error").hidden = true;
-    $("#parse-steps").hidden = false;
+    $('#parse-error') && ($('#parse-error').hidden = true);
+    $('#parse-steps') && ($('#parse-steps').hidden = false);
   }
 
   function runParseSteps() {
-    const items = $$("#parse-steps li");
-    items.forEach((li) => li.classList.remove("is-active", "is-done"));
+    const items = $$('#parse-steps li');
+    items.forEach((li) => li.classList.remove('is-active', 'is-done'));
     let i = 0;
     const tick = () => {
-      if (i > 0) items[i - 1].classList.replace("is-active", "is-done");
+      if (i > 0) items[i - 1].classList.replace('is-active', 'is-done');
       if (i < items.length) {
-        items[i].classList.add("is-active");
-        i++;
+        items[i].classList.add('is-active');
+        i += 1;
         parseTimer = setTimeout(tick, 600);
       }
     };
@@ -309,10 +226,13 @@
   }
 
   function clearParseSteps() {
-    if (parseTimer) { clearTimeout(parseTimer); parseTimer = null; }
-    $$("#parse-steps li").forEach((li) => {
-      li.classList.remove("is-active");
-      li.classList.add("is-done");
+    if (parseTimer) {
+      clearTimeout(parseTimer);
+      parseTimer = null;
+    }
+    $$('#parse-steps li').forEach((li) => {
+      li.classList.remove('is-active');
+      li.classList.add('is-done');
     });
   }
 
@@ -320,72 +240,78 @@
     return {
       id: State.newId(),
       date: State.todayISO(),
-      tags: { mood: "奇幻", themes: [], elements: [] },
-      summary: "",
-      raw: text || ""
+      tags: {
+        mood: '奇幻',
+        themes: [],
+        elements: [],
+      },
+      summary: '',
+      raw: text || '',
     };
   }
 
-  // Heuristic parse — extracts mood/themes/elements from text keywords
   function mockParse(text) {
     const draft = freshDraft(text);
-
     const moodHits = [
-      { mood: "恐怖/惊悚", words: ["恐怖", "惊悚", "蟑螂", "鬼", "尸", "黑暗"] },
-      { mood: "焦虑",       words: ["追", "迟到", "考试", "找不到", "晚了", "丢"] },
-      { mood: "温暖",       words: ["家人", "外婆", "祖母", "厨房", "阳光", "笑"] },
-      { mood: "悲伤",       words: ["哭", "离别", "走了", "葬礼"] },
-      { mood: "奇幻",       words: ["飞", "魔法", "城堡", "森林", "龙", "异世界"] },
-      { mood: "平静",       words: ["海", "湖", "雨", "安静"] }
+      { mood: '恐怖/惊悚', words: ['恐怖', '惊悚', '蟑螂', '鬼', '尸', '黑暗'] },
+      { mood: '焦虑', words: ['追', '迟到', '考试', '找不到', '晚了', '丢'] },
+      { mood: '温暖', words: ['家人', '外婆', '祖母', '厨房', '阳光', '笑'] },
+      { mood: '悲伤', words: ['哭', '离别', '走了', '葬礼'] },
+      { mood: '奇幻', words: ['飞', '魔法', '城堡', '森林', '龙', '异世界'] },
+      { mood: '平静', words: ['海', '湖', '雨', '安静'] },
     ];
+
     for (const m of moodHits) {
-      if (m.words.some((w) => text.includes(w))) { draft.tags.mood = m.mood; break; }
+      if (m.words.some((w) => text.includes(w))) {
+        draft.tags.mood = m.mood;
+        break;
+      }
     }
 
-    const possibleThemes = ["逃离", "追逐", "迷路", "返回", "童年", "考试", "飞行", "旅行", "失去", "重逢", "密室", "轮回"];
-    const possibleElems  = ["楼梯", "厨房", "通道", "蟑螂", "森林", "海", "灯", "雨", "镜子", "门", "钥匙", "陌生人"];
-
-    draft.tags.themes   = possibleThemes.filter((w) => text.includes(w)).slice(0, 4);
+    const possibleThemes = ['逃离', '追逐', '迷路', '返回', '童年', '考试', '飞行', '旅行', '失去', '重逢', '密室', '轮回'];
+    const possibleElems = ['楼梯', '厨房', '通道', '蟑螂', '森林', '海', '灯', '雨', '镜子', '门', '钥匙', '陌生人'];
+    draft.tags.themes = possibleThemes.filter((w) => text.includes(w)).slice(0, 4);
     draft.tags.elements = possibleElems.filter((w) => text.includes(w)).slice(0, 4);
 
-    const sentences = text.split(/[。.！？!?\n]/).map((s) => s.trim()).filter(Boolean);
-    draft.summary = sentences.length === 0
-      ? text.slice(0, 80)
-      : sentences.slice(0, 2).join("。") + "。";
-
+    const sentences = text
+      .split(/[。.！？!?\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    draft.summary = sentences.length === 0 ? text.slice(0, 80) : sentences.slice(0, 2).join('。') + '。';
     return draft;
   }
 
-  // ============================================================
-  //   Confirm screen
-  // ============================================================
   function renderConfirm(d) {
-    $("#f-date").value    = d.date;
-    $("#f-mood").value    = d.tags.mood || "奇幻";
-    $("#f-summary").value = d.summary || "";
-    $("#f-raw").value     = d.raw || "";
-    renderChips("#chips-themes",   d.tags.themes,   "themes");
-    renderChips("#chips-elements", d.tags.elements, "elements");
+    $('#f-date') && ($('#f-date').value = d.date);
+    $('#f-mood') && ($('#f-mood').value = d.tags.mood || '奇幻');
+    $('#f-summary') && ($('#f-summary').value = d.summary || '');
+    $('#f-raw') && ($('#f-raw').value = d.raw || '');
+    renderChips('#chips-themes', d.tags.themes, 'themes');
+    renderChips('#chips-elements', d.tags.elements, 'elements');
   }
 
   function renderChips(sel, list, kind) {
     const wrap = $(sel);
-    wrap.innerHTML = "";
+    if (!wrap) return;
+    wrap.innerHTML = '';
     (list || []).forEach((label, idx) => {
-      const chip = document.createElement("span");
-      chip.className = "chip";
+      const chip = document.createElement('span');
+      chip.className = 'chip';
       chip.textContent = label;
-      const x = document.createElement("button");
-      x.className = "chip__x";
-      x.type = "button";
-      x.textContent = "×";
-      x.setAttribute("aria-label", "删除");
-      x.addEventListener("click", () => {
-        const draft = State.getDraft();
+
+      const x = document.createElement('button');
+      x.className = 'chip__x';
+      x.type = 'button';
+      x.textContent = '×';
+      x.setAttribute('aria-label', '删除');
+      x.addEventListener('click', async () => {
+        const draft = await State.getDraft();
         if (!draft) return;
         draft.tags[kind].splice(idx, 1);
+        await State.setDraft(draft);
         renderChips(sel, draft.tags[kind], kind);
       });
+
       chip.appendChild(x);
       wrap.appendChild(chip);
     });
@@ -394,166 +320,155 @@
   function bindChipInput(inputSel, kind, listSel) {
     const inp = $(inputSel);
     if (!inp) return;
-    inp.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter") return;
+    inp.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
       e.preventDefault();
       const v = inp.value.trim();
       if (!v) return;
-      const draft = State.getDraft();
+      const draft = await State.getDraft();
       if (!draft) return;
       if (!draft.tags[kind].includes(v)) {
         draft.tags[kind].push(v);
+        await State.setDraft(draft);
         renderChips(listSel, draft.tags[kind], kind);
       }
-      inp.value = "";
+      inp.value = '';
     });
   }
 
-  function readDraftFromForm() {
-    const d = State.getDraft();
+  async function readDraftFromForm() {
+    const d = await State.getDraft();
     if (!d) return null;
-    d.date      = $("#f-date").value || State.todayISO();
-    d.tags.mood = $("#f-mood").value;
-    d.summary   = $("#f-summary").value.trim();
-    d.raw       = $("#f-raw").value.trim();
+    d.date = $('#f-date')?.value || State.todayISO();
+    d.tags.mood = $('#f-mood')?.value || '奇幻';
+    d.summary = $('#f-summary')?.value?.trim() || '';
+    d.raw = $('#f-raw')?.value?.trim() || '';
+    await State.setDraft(d);
     return d;
   }
 
-  // ============================================================
-  //   Save — writes directly to localStorage, no auth required
-  // ============================================================
-  function handleSave() {
-    const d = readDraftFromForm();
+  async function handleSave() {
+    const d = await readDraftFromForm();
     if (!d) return;
     if (!d.summary && !d.raw) {
-      toast("摘要和原文都为空，写点什么吧", "error");
+      toast('摘要和原文都为空，写点什么吧', 'error');
       return;
     }
-    State.addDream(d);
-    State.clearDraft();
-    Router.show("saved");
+    await State.addDream(d);
+    await State.clearDraft();
+    Router.show('saved');
   }
 
-  // ============================================================
-  //   Stories list
-  // ============================================================
-  function renderStoryList() {
-    const list = State.getDreams();
-    const q = ($("#story-search")?.value || "").trim().toLowerCase();
+  function fillReadonlyChips(selector, items) {
+    const root = $(selector);
+    if (!root) return;
+    root.innerHTML = '';
+
+    const values = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (!values.length) {
+      root.textContent = '—';
+      return;
+    }
+
+    values.forEach((item) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.textContent = item;
+      root.appendChild(chip);
+    });
+  }
+
+  async function renderStoryList() {
+    const list = await State.getDreams();
+    const q = ($('#story-search')?.value || '').trim().toLowerCase();
     const filtered = q
       ? list.filter((d) => {
           const hay = [
-            d.summary, d.raw, d.tags.mood,
-            ...(d.tags.themes || []),
-            ...(d.tags.elements || [])
-          ].join(" ").toLowerCase();
+            d.summary,
+            d.raw,
+            d.tags?.mood,
+            ...(d.tags?.themes || []),
+            ...(d.tags?.elements || []),
+          ]
+            .join(' ')
+            .toLowerCase();
           return hay.includes(q);
         })
       : list;
 
-    const wrap = $("#story-list");
-    const empty = $("#story-empty");
-    wrap.innerHTML = "";
+    const wrap = $('#story-list');
+    const empty = $('#story-empty');
+    if (!wrap || !empty) return;
 
+    wrap.innerHTML = '';
     if (filtered.length === 0) {
       empty.hidden = false;
       wrap.hidden = true;
       return;
     }
+
     empty.hidden = true;
     wrap.hidden = false;
 
     filtered.forEach((d) => {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "story-card";
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'story-card';
       card.innerHTML = `
-        <div class="story-card__date">${formatDate(d.date)} · ${escapeHTML(d.tags.mood || "")}</div>
-        <div class="story-card__summary">${escapeHTML(d.summary || d.raw || "")}</div>
-        <div class="story-card__tags">
-          ${(d.tags.themes || []).slice(0, 4).map(t => `<span class="story-card__tag">${escapeHTML(t)}</span>`).join("")}
-        </div>
+        <div class="story-card__date">${escapeHTML(formatDate(d.date || ''))}</div>
+        <div class="story-card__summary">${escapeHTML(d.summary || d.raw || '未命名梦境')}</div>
+        <div class="story-card__tags">${(d.tags?.themes || []).slice(0, 4).map((t) => `<span class="story-card__tag">${escapeHTML(t)}</span>`).join('')}</div>
       `;
-      card.addEventListener("click", () => openDetail(d.id));
+      card.addEventListener('click', () => void openDetail(d.id));
       wrap.appendChild(card);
     });
   }
 
-  function openDetail(id) {
-    const d = State.getDream(id);
+  async function openDetail(id) {
+    const d = await State.getDream(id);
     if (!d) return;
-    $("#detail-date").textContent = formatDate(d.date);
-    $("#detail-mood").textContent = d.tags.mood || "";
-    $("#detail-summary").textContent = d.summary || "（无摘要）";
-    $("#detail-raw").textContent = d.raw || "（无原文）";
-
-    fillReadonlyChips("#detail-themes",   d.tags.themes);
-    fillReadonlyChips("#detail-elements", d.tags.elements);
-
-    Router.show("storyDetail");
+    $('#detail-date') && ($('#detail-date').textContent = formatDate(d.date || ''));
+    $('#detail-mood') && ($('#detail-mood').textContent = d.tags?.mood || '');
+    fillReadonlyChips('#detail-themes', d.tags?.themes || []);
+    fillReadonlyChips('#detail-elements', d.tags?.elements || []);
+    $('#detail-summary') && ($('#detail-summary').textContent = d.summary || '');
+    $('#detail-raw') && ($('#detail-raw').textContent = d.raw || '');
+    Router.show('storyDetail');
   }
 
-  function fillReadonlyChips(sel, list) {
-    const wrap = $(sel);
-    wrap.innerHTML = "";
-    (list || []).forEach((label) => {
-      const c = document.createElement("span");
-      c.className = "chip";
-      c.textContent = label;
-      wrap.appendChild(c);
-    });
+  async function clearAllDreams() {
+    if (!window.confirm('确定要清空所有梦境记录？此操作无法撤销。')) return;
+    await State.clearAllDreams();
+    toast('已清空', 'success');
+    await renderStoryList();
   }
 
-  // ============================================================
-  //   Helpers
-  // ============================================================
-  function escapeHTML(s) {
-    return String(s ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
+  async function redoRecording() {
+    await State.clearDraft();
+    await startRecording();
   }
 
-  function formatDate(iso) {
-    if (!iso) return "";
-    const d = new Date(iso);
-    if (isNaN(+d)) return iso;
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}.${m}.${day}`;
+  async function goStories() {
+    await renderStoryList();
+    Router.show('stories');
   }
 
-  // ============================================================
-  //   Boot
-  // ============================================================
-  syncNetBanner();
-  adaptForDevice();
-  Router.show("home");
-
-  function adaptForDevice() {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    if (!isIOS) return;
-
-    // 首页：把麦克风图标换成铅笔，提示改为「点击开始记录」
-    const btn = document.getElementById("btn-start-record");
-    if (btn) {
-      btn.setAttribute("aria-label", "开始记录");
-      btn.innerHTML = `<svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true">
-        <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-      </svg>`;
-    }
-    const hint = document.querySelector(".record-hint");
-    if (hint) hint.textContent = "点击开始记录梦境";
-
-    // 隐藏「或直接文字输入」（iOS 下本来就是文字输入）
-    const textBtn = document.getElementById("btn-text-input");
-    if (textBtn) textBtn.hidden = true;
-
-    // 原始记录 placeholder 提示用 iOS 键盘麦克风
-    const rawArea = document.getElementById("f-raw");
-    if (rawArea) rawArea.placeholder = "在此输入梦境原文\n\n💡 点击键盘右下角 🎤 可语音听写";
+  async function openManualConfirmFromParse() {
+    hideParseError();
+    const draft = freshDraft(lastParseText);
+    await State.setDraft(draft);
+    renderConfirm(draft);
+    Router.show('confirm');
   }
+
+  function escapeHTML(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  void init();
 })();
