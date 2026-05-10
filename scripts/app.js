@@ -130,22 +130,33 @@
       if (sec >= REC_LIMIT_SEC) stopRecording(true);
     }, 250);
 
-    // iOS Safari 有 webkitSpeechRecognition 但对 web app 禁用（service-not-allowed）
-    // 直接跳过录音，进手动输入
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-    if (isIOS || !("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
+    // iOS Safari 禁用了网页 SpeechRecognition（service-not-allowed）
+    // 直接进确认页，聚焦原始记录框，引导用键盘 🎤 听写
+    if (isIOS) {
       clearInterval(recTimer);
       recTimer = null;
       const draft = freshDraft("");
       State.setDraft(draft);
       renderConfirm(draft);
       Router.show("confirm");
-      if (isIOS) {
-        toast("iOS Safari 不支持网页语音录入，请直接文字输入", "");
-      } else {
-        toast("当前浏览器不支持语音识别，请手动输入", "");
-      }
+      // 延迟聚焦让页面先切换完成，键盘弹出
+      setTimeout(() => {
+        const el = document.getElementById("f-raw");
+        if (el) el.focus();
+      }, 150);
+      return;
+    }
+
+    if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
+      clearInterval(recTimer);
+      recTimer = null;
+      const draft = freshDraft("");
+      State.setDraft(draft);
+      renderConfirm(draft);
+      Router.show("confirm");
+      toast("当前浏览器不支持语音识别，请手动输入", "");
       return;
     }
 
@@ -519,5 +530,30 @@
   //   Boot
   // ============================================================
   syncNetBanner();
+  adaptForDevice();
   Router.show("home");
+
+  function adaptForDevice() {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (!isIOS) return;
+
+    // 首页：把麦克风图标换成铅笔，提示改为「点击开始记录」
+    const btn = document.getElementById("btn-start-record");
+    if (btn) {
+      btn.setAttribute("aria-label", "开始记录");
+      btn.innerHTML = `<svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true">
+        <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+      </svg>`;
+    }
+    const hint = document.querySelector(".record-hint");
+    if (hint) hint.textContent = "点击开始记录梦境";
+
+    // 隐藏「或直接文字输入」（iOS 下本来就是文字输入）
+    const textBtn = document.getElementById("btn-text-input");
+    if (textBtn) textBtn.hidden = true;
+
+    // 原始记录 placeholder 提示用 iOS 键盘麦克风
+    const rawArea = document.getElementById("f-raw");
+    if (rawArea) rawArea.placeholder = "在此输入梦境原文\n\n💡 点击键盘右下角 🎤 可语音听写";
+  }
 })();
