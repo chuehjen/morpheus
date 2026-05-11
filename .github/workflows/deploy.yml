@@ -34,12 +34,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Only install what's needed for the build - skip heavy optional deps
-          npm ci --legacy-peer-deps --ignore-scripts --omit=optional 2>/dev/null || \
-          npm install vite@5 @capacitor/core@6 --no-audit --no-fund
+          npm install -g vite@5
+          # Install only the core dependency needed for build, skip all optional/native deps
+          npm install @capacitor/core@6 --no-audit --no-fund --ignore-scripts
 
       - name: Build
-        run: npm run build
+        run: npx vite build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
