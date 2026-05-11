@@ -1,9 +1,14 @@
 import Native from './native.js';
 import State from './state.js';
+import { parseDream } from './llm.js';
 
 (function () {
   const { Router } = window;
   const REC_LIMIT_SEC = 180;
+  // LongCat API key — injected via Vite .env.local at build time
+  function getApiKey() {
+    return import.meta.env.VITE_LONGCAT_KEY || null;
+  }
 
   let recTimer = null;
   let recStart = 0;
@@ -193,6 +198,24 @@ import State from './state.js';
     lastParseText = text;
     setTimeout(async () => {
       clearParseSteps();
+
+      const apiKey = getApiKey();
+      if (apiKey) {
+        const llm = await parseDream(text, apiKey);
+        if (llm) {
+          const draft = freshDraft(text);
+          draft.tags.mood = llm.mood || '奇幻';
+          draft.tags.themes = llm.themes || [];
+          draft.tags.elements = llm.elements || [];
+          draft.summary = llm.summary || '';
+          await State.setDraft(draft);
+          renderConfirm(draft);
+          Router.show('confirm');
+          return;
+        }
+      }
+
+      // Fallback: mockParse
       const draft = mockParse(text);
       await State.setDraft(draft);
       renderConfirm(draft);
