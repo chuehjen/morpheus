@@ -1,7 +1,25 @@
-import { Capacitor } from '@capacitor/core';
-import { SpeechRecognition } from '@capacitor-community/speech-recognition';
-import { LocalNotifications } from '@capacitor/local-notifications';
-import { Preferences } from '@capacitor/preferences';
+// ============================================================
+// Capacitor modules — loaded lazily, only inside native shell.
+// Static bare-specifier imports crash the browser module graph
+// on any non-Vite environment (GitHub Pages, plain HTTP server).
+// Instead we probe window.Capacitor (injected by the native
+// bridge) and dynamically import only when actually native.
+// ============================================================
+let Capacitor = { isNativePlatform: () => false, isPluginAvailable: () => false };
+let SpeechRecognition = {};
+let LocalNotifications = {};
+let Preferences = {};
+
+if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+  try {
+    ({ Capacitor } = await import('@capacitor/core'));
+    ({ SpeechRecognition } = await import('@capacitor-community/speech-recognition'));
+    ({ LocalNotifications } = await import('@capacitor/local-notifications'));
+    ({ Preferences } = await import('@capacitor/preferences'));
+  } catch (e) {
+    console.warn('[Native] Failed to load Capacitor modules:', e.message);
+  }
+}
 
 const REMINDER_NOTIFICATION_ID = 1001;
 

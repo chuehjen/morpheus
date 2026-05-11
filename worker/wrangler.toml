@@ -1,0 +1,9 @@
+name = "morpheus-llm"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+[vars]
+LONGCAT_MODEL = "LongCat-Flash-Chat"
+
+# LONGCAT_KEY 通过以下命令注入，不进代码仓库：
+#   wrangler secret put LONGCAT_KEY
