@@ -35,9 +35,10 @@ jobs:
       - name: Install dependencies
         run: |
           npm install -g vite@5
-          npm install @capacitor/core@6 @capacitor-community/speech-recognition@5 \
-            @capacitor/local-notifications@6 @capacitor/preferences@6 \
-            --no-audit --no-fund --ignore-scripts
+          npm install @capacitor/core@6 \
+            @capacitor/local-notifications@6 \
+            @capacitor/preferences@6 \
+            --legacy-peer-deps --no-audit --no-fund --ignore-scripts
 
       - name: Build
         run: vite build
