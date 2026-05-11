@@ -5,6 +5,7 @@ export default defineConfig(({ mode }) => {
   const apiKey = env.VITE_LONGCAT_KEY || '';
 
   return defineConfig({
+    base: './',
     build: {
       outDir: 'dist',
       emptyOutDir: true,
