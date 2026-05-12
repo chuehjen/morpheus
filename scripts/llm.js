@@ -4,10 +4,10 @@
  */
 
 // dev 时走 Vite proxy（/api/parse → localhost:8787/parse）
-// production 走已部署的 Worker URL
+// production 走已部署的 Worker URL，通过 VITE_WORKER_URL 环境变量注入
 const PARSE_URL = import.meta.env.DEV
   ? '/api/parse'
-  : 'https://morpheus-llm.YOUR_SUBDOMAIN.workers.dev/parse';
+  : (import.meta.env.VITE_WORKER_URL || '') + '/parse';
 
 /**
  * 通过 Worker 解析梦境文本，返回结构化草稿字段。

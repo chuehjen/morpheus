@@ -10,7 +10,11 @@ let SpeechRecognition = {};
 let LocalNotifications = {};
 let Preferences = {};
 
-if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+// Capacitor modules are only available in native shell, never in web build.
+// Dynamic imports must be inside an async function (not top-level await) so
+// esbuild can compile for safari14+ without "top-level await" errors.
+(async function initNativeModules() {
+  if (typeof window === 'undefined' || !window.Capacitor?.isNativePlatform?.()) return;
   try {
     ({ Capacitor } = await import('@capacitor/core'));
     ({ SpeechRecognition } = await import('@capacitor-community/speech-recognition'));
@@ -19,7 +23,7 @@ if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
   } catch (e) {
     console.warn('[Native] Failed to load Capacitor modules:', e.message);
   }
-}
+})();
 
 const REMINDER_NOTIFICATION_ID = 1001;
 
