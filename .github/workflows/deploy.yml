@@ -35,8 +35,11 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps --ignore-scripts
 
+      - name: Install Vite globally
+        run: npm install -g vite@5
+
       - name: Build
-        run: npx vite build
+        run: vite build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
