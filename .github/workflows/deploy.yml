@@ -34,6 +34,8 @@ jobs:
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
 
       - name: Build
         run: npx vite build
