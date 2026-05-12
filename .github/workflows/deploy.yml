@@ -40,6 +40,8 @@ jobs:
 
       - name: Build
         run: vite build
+        env:
+          VITE_WORKER_URL: https://morpheus-llm.hsnu130821.workers.dev
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
